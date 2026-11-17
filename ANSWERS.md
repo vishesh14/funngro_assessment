@@ -1,8 +1,9 @@
 # Funngro - Mobile Engineering Assessment
 
 Code:
-- Part 1 rewrite: `lib/earnings/earnings_screen.dart`. `earnings_fakes.dart` holds stand-ins for `api`, `Earning`, `EarningTile`, and so on, so it runs on its own.
-- Part 2: `lib/projects/projects_screen.dart` (the API is unchanged, in `projects_api.dart`).
+- State management: **Bloc** (`flutter_bloc` + `bloc_concurrency`). Each feature has `bloc/` (events, immutable state, bloc) and a screen that only draws state and sends events.
+- Part 1 rewrite: `lib/earnings/bloc/earnings_bloc.dart` + `lib/earnings/earnings_screen.dart`. `earnings_fakes.dart` holds stand-ins for `api`, `Earning`, `EarningTile`, and so on, so it runs on its own.
+- Part 2: `lib/projects/bloc/projects_bloc.dart` + `lib/projects/projects_screen.dart` (the API is unchanged, in `projects_api.dart`). Unit tests: `test/projects_bloc_test.dart`.
 - Run with `flutter pub get && flutter run`. Measure performance in `--profile` mode.
 
 ---
@@ -51,12 +52,14 @@ Code:
 **9. Hygiene.** Use `const` constructors and `super.key`, and avoid a global `api` singleton so the screen can be tested with an injected fake. Loading 3,000 items in one response also means a large JSON decode on the UI thread (see Questions).
 
 ### 1.2 Rewrite
-See `lib/earnings/earnings_screen.dart`. The key points:
-- The subscription is opened in `initState` before the fetch, with updates buffered during the fetch and then merged and de-duplicated. It's cancelled in `dispose`.
-- `build()` only renders the current status: loading, error with Retry, empty, or list.
-- `ListView.builder` with a `ValueKey` per row and one cached `NumberFormat`.
-- `mounted` and user checks after every `await`. Detail fetches are guarded against double taps, cached, and show errors in a SnackBar.
-- I used plain `StatefulWidget` so the data flow is explicit in one file. In the async_redux codebase, `_load` would be an action, `_earnings`/`_status` would live in the store, and the subscription would be started and cancelled by actions dispatched from `initState`/`dispose`.
+See `lib/earnings/bloc/earnings_bloc.dart` and `lib/earnings/earnings_screen.dart`. The key points:
+- **Data flow:** the UI sends events (`EarningsStarted`, `EarningTapped`, and so on), `EarningsBloc` talks to the API and the wallet stream, emits an immutable `EarningsState`, and `BlocBuilder` redraws. `build()` never fetches or subscribes.
+- **Subscription lifecycle:** `BlocProvider` creates the bloc once per screen. The wallet stream is subscribed in `EarningsStarted` (before the fetch), updates are buffered during the fetch and then merged and de-duplicated by id, and the subscription is cancelled in `close()`, which `BlocProvider` calls automatically when the screen leaves.
+- **No `mounted` checks needed:** if the screen leaves mid-request, the bloc is closed and Bloc ignores late `emit`s. Navigation and SnackBars run in `BlocListener`, which only fires while the widget is on screen.
+- **Changed `userId`:** `BlocProvider` is keyed by `userId`, so a new user gets a fresh bloc and the old one is closed.
+- **Smooth list:** `ListView.builder` with a `ValueKey` per row and one cached `NumberFormat`.
+- **Detail taps:** `droppable()` ignores taps while a detail is loading. Details are cached, failures show a SnackBar, and navigation is a one-time `detailToOpen` signal handled by a listener.
+- **Why Bloc:** it keeps the logic out of widgets and makes it unit-testable (see `test/projects_bloc_test.dart`), and events make the data flow explicit. The same structure maps directly to async_redux: events become actions, the bloc's handlers become `reduce()`, and the state lives in the store.
 
 ### 1.3 Guardrails for the other 59 screens
 I'd turn on lints that catch these issues mechanically in CI (`cancel_subscriptions`, `close_sinks`, `use_build_context_synchronously`, `prefer_const_constructors`) and add a custom lint or review rule that `build()` must not call the API or `.listen`. I'd provide shared building blocks, an `AsyncView` (loading/error/empty/data) and a `PaginatedListView`, so the correct pattern is also the easiest one, and ban `Column` inside `SingleChildScrollView` for data-driven lists. Every list screen would get a performance check in profile mode on a reference low-end Android device before release, plus an integration test that scrolls a 3,000-item fixture and fails if frame build times exceed budget. A short PR checklist (lifecycle, `mounted`, states, keys) would cover the rest during review.
@@ -100,7 +103,7 @@ I'd turn on lints that catch these issues mechanically in CI (`cancel_subscripti
 - I can replace `formatCurrency`'s internals with a cached `NumberFormat` (₹, `en_IN`). If I can't, I'd memoize its output per item lazily.
 - `EarningTile` and `DetailScreen` keep their existing APIs. The fakes in `earnings_fakes.dart` exist only so the screen runs.
 - Part 2: a page with fewer than 20 items (including an empty page) means the end of the list. A failed refresh keeps the old list and shows a SnackBar. A failed page load is not retried automatically on scroll; the user taps Retry.
-- I used `StatefulWidget` instead of async_redux to keep the data flow visible in one file.
+- I used Bloc, which I know best, instead of async_redux, as the brief allows. The logic is in plain event handlers, so moving it to async_redux actions is mechanical.
 
 ## Questions I'd ask you
 1. Does the earnings API support pagination or a summary endpoint? Sending 3,000 items to an ₹8,000 phone means a large JSON decode (on the UI thread unless moved to an isolate) on one of the most-visited screens.
