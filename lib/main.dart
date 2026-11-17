@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'earnings/earnings_screen.dart';
+import 'projects/projects_screen.dart';
 
 void main() => runApp(const App());
 
@@ -20,6 +21,12 @@ class App extends StatelessWidget {
                 title: const Text('Part 1 - Earnings screen (rewritten)'),
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => const EarningsScreen(userId: 'demo-user'),
+                )),
+              ),
+              ListTile(
+                title: const Text('Part 2 - Projects (pagination)'),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const ProjectsScreen(),
                 )),
               ),
             ],
