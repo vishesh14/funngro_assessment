@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:bloc_concurrency/bloc_concurrency.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../projects_api.dart';
@@ -48,10 +49,12 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
     final gen = _generation;
     final page = state.nextPage;
     emit(state.copyWith(isLoading: true, clearError: true));
+    debugPrint('[Projects] page $page: loading...');
 
     try {
       final result = await _api.fetchProjects(page);
       if (gen != _generation) return; // a refresh happened meanwhile
+      debugPrint('[Projects] page $page: OK (${result.length} items)');
       emit(state.copyWith(
         items: [...state.items, ...result],
         nextPage: page + 1,
@@ -60,6 +63,7 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
       ));
     } catch (e) {
       if (gen != _generation) return;
+      debugPrint('[Projects] page $page: FAILED ($e) - waiting for Retry');
       // items are untouched: already-loaded projects stay on screen.
       emit(state.copyWith(error: e, isLoading: false));
     }
@@ -82,7 +86,8 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
         clearError: true,
         isRefreshing: false,
       ));
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[Projects] refresh FAILED ($e) - keeping old list');
       // Keep the old list - better than wiping it on a flaky network.
       emit(state.copyWith(
         isRefreshing: false,
